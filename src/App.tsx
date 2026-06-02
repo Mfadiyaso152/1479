@@ -23,7 +23,8 @@ import {
   updateTransactionData, 
   deleteTransactionData,
   getActiveConfig,
-  getDb
+  getDb,
+  getCachedTransactions
 } from './firebase';
 import TransactionForm from './components/TransactionForm';
 import AnalyticsPanel from './components/AnalyticsPanel';
@@ -31,7 +32,14 @@ import TransactionList from './components/TransactionList';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    try {
+      return getCachedTransactions();
+    } catch (e) {
+      console.warn("localStorage not accessible, starting empty", e);
+      return [];
+    }
+  });
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -65,10 +73,14 @@ export default function App() {
   useEffect(() => {
     loadData();
     
-    // Autofill current config in settings input if it's high level custom config
-    const localConfig = localStorage.getItem('user_firebase_config');
-    if (localConfig) {
-      setCustomConfigInput(localConfig);
+    try {
+      // Autofill current config in settings input if it's high level custom config
+      const localConfig = localStorage.getItem('user_firebase_config');
+      if (localConfig) {
+        setCustomConfigInput(localConfig);
+      }
+    } catch (e) {
+      console.warn("Storage item autofill omitted due to client sandbox permissions:", e);
     }
   }, []);
 
@@ -121,7 +133,11 @@ export default function App() {
         return;
       }
 
-      localStorage.setItem('user_firebase_config', JSON.stringify(parsed, null, 2));
+      try {
+        localStorage.setItem('user_firebase_config', JSON.stringify(parsed, null, 2));
+      } catch (e) {
+        console.warn("Storage write blocked", e);
+      }
       setActiveConfigObj(getActiveConfig());
       triggerSuccess("تم ربط تطبيقك بقاعدة بياناتك الشخصية بنجاح! جاري مزامنة السجلات...");
       setIsSettingsOpen(false);
@@ -138,7 +154,11 @@ export default function App() {
 
   // Reset custom database configuration
   const handleResetConfig = () => {
-    localStorage.removeItem('user_firebase_config');
+    try {
+      localStorage.removeItem('user_firebase_config');
+    } catch (e) {
+      console.warn("Storage delete blocked", e);
+    }
     setCustomConfigInput('');
     setActiveConfigObj(getActiveConfig());
     triggerSuccess("تم إلغاء ربط قاعدة البيانات الخاصة والرجوع للإعدادات الافتراضية.");

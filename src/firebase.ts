@@ -49,6 +49,38 @@ export function isFirebaseConfigured(): boolean {
 let dbInstance: any = null;
 let initializedConfigStr = '';
 
+const FIRESTORE_CACHE_KEY = 'dirham_firestore_tx_cache';
+
+export function getFirestoreCache(): Transaction[] {
+  try {
+    const data = localStorage.getItem(FIRESTORE_CACHE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    console.error("Failed to read firestore cache", e);
+    return [];
+  }
+}
+
+export function saveFirestoreCache(transactions: Transaction[]) {
+  try {
+    localStorage.setItem(FIRESTORE_CACHE_KEY, JSON.stringify(transactions));
+  } catch (e) {
+    console.error("Failed to write firestore cache", e);
+  }
+}
+
+export function getCachedTransactions(): Transaction[] {
+  try {
+    if (isFirebaseConfigured()) {
+      const cache = getFirestoreCache();
+      if (cache.length > 0) return cache;
+    }
+    return getLocalTransactions();
+  } catch (e) {
+    return [];
+  }
+}
+
 export function getDb() {
   const { config } = getActiveConfig();
   if (!config) return null;
@@ -84,12 +116,24 @@ export async function fetchTransactions(): Promise<Transaction[]> {
   const db = getDb();
   if (isFirebaseConfigured() && db) {
     const colPath = 'transactions';
+    
+    // Create a timeout promise to reject after 3.2 seconds
+    const timeout = (ms: number) => new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Firebase network connection timeout')), ms)
+    );
+    
     try {
       const q = query(
         collection(db, colPath),
         orderBy('date', 'desc')
       );
-      const snapshot = await getDocs(q);
+      
+      // Race Firebase retrieval against timeout
+      const snapshot = await Promise.race([
+        getDocs(q),
+        timeout(3200)
+      ]);
+      
       const items: Transaction[] = [];
       snapshot.forEach((doc) => {
         const d = doc.data();
@@ -104,11 +148,25 @@ export async function fetchTransactions(): Promise<Transaction[]> {
           createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt,
         } as Transaction);
       });
+      
+      // Save successfully fetched list to local cache
+      saveFirestoreCache(items);
       return items;
     } catch (error) {
-      console.warn("Index building or query error, falling back to unordered list", error);
+      console.warn("Firestore fetch error or timeout, loading cached data:", error);
+      
+      // Retrieve from cache if Firestore query failed/timed out
+      const cached = getFirestoreCache();
+      if (cached && cached.length > 0) {
+        return cached;
+      }
+      
+      // Fallback further to unordered list query with a shorter timeout as a last resort
       try {
-        const snapshot = await getDocs(collection(db, colPath));
+        const snapshot = await Promise.race([
+          getDocs(collection(db, colPath)),
+          timeout(1500)
+        ]);
         const items: Transaction[] = [];
         snapshot.forEach((doc) => {
           const d = doc.data();
@@ -122,10 +180,15 @@ export async function fetchTransactions(): Promise<Transaction[]> {
             notes: d.notes || '',
           } as Transaction);
         });
-        return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        const sorted = items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        saveFirestoreCache(sorted);
+        return sorted;
       } catch (innerErr) {
-        console.error("Failed completely to fetch transactions from Firebase:", innerErr);
-        return [];
+        console.error("Failed completely to fetch transactions from Firebase, returning cached fallback:", innerErr);
+        const ultimateCache = getFirestoreCache();
+        if (ultimateCache.length > 0) return ultimateCache;
+        return getLocalTransactions().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
     }
   } else {
