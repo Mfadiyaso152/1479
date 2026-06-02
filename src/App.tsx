@@ -215,7 +215,7 @@ export default function App() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-black text-slate-800 font-sans tracking-tight">
-                  درهَم الوجيز
+                  درهَم
                 </h1>
                 
                 {/* Active connection database badge selector */}
