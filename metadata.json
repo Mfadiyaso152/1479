@@ -1,0 +1,6 @@
+{
+  "name": "متتبع المصاريف وقاعدة البيانات",
+  "description": "تطبيق متكامل لإدارة ومتابعة المصاريف والمالية الشخصية مع دعم كامل لعمليات الإضافة، الحذف، والتعديل، ومزامنة البيانات في الوقت الفعلي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
